@@ -119,20 +119,31 @@
     await sleep(FIX_MS);
 
     // Stimulus
-    fixEl.textContent = "";
-    stimImg.src = trial.image_path;
-    stimImg.style.opacity = "1";
-    statusEl.textContent = "stim";
-    setButtonsEnabled(true);
-    awaitingResponse = true;
-    stimOnsetPerf = performance.now();
+fixEl.textContent = "";
+setButtonsEnabled(true);
+awaitingResponse = true;
 
-    // 最大STIM_MS経過後は表示を消す（反応待ちは続ける設計でもOKだが、今回は消す）
-    await sleep(STIM_MS);
-    if (awaitingResponse) {
-      stimImg.style.opacity = "0";
-      statusEl.textContent = "respond";
-    }
+// 先に消してからsrcを変える（前の画像チラ見え防止）
+stimImg.style.opacity = "0";
+
+// 画像が読み込まれてから表示＆計時開始
+await new Promise((resolve) => {
+  // 毎回ハンドラを上書きして安全に
+  stimImg.onload = () => resolve();
+  stimImg.onerror = () => resolve(); // もし読み込み失敗でも固まらない
+  stimImg.src = trial.image_path;
+});
+
+stimImg.style.opacity = "1";
+statusEl.textContent = "stim";
+stimOnsetPerf = performance.now();
+
+// 0.5秒後に消す（反応はその後も受け付ける仕様のまま）
+await sleep(STIM_MS);
+if (awaitingResponse) {
+  stimImg.style.opacity = "0";
+  statusEl.textContent = "respond";
+}
   }
 
   function recordResponse(respLabel) {
