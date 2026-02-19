@@ -1,4 +1,4 @@
-// CoDG Task (log + end-of-task CoDG estimate)
+/// CoDG Task (log + end-of-task CoDG estimate)
 // 2 faces (M1, F1) × 11 gaze levels × 5 repeats = 110 trials
 (() => {
   // ====== 設定 ======
@@ -231,9 +231,6 @@
     const pL = (x) => sigmoid(fitL.b0 + fitL.b1 * x);
     const pR = (x) => sigmoid(fitR.b0 + fitR.b1 * x);
 
-    // 交点条件（Direct = 1 - pL - pR を用いる）：
-    // Left-Direct: pL = 1 - pL - pR => 2pL + pR - 1 = 0
-    // Right-Direct: pR = 1 - pL - pR => pL + 2pR - 1 = 0
     const fLeft = (x) => (2 * pL(x) + pR(x) - 1);
     const fRight = (x) => (pL(x) + 2 * pR(x) - 1);
 
@@ -409,13 +406,23 @@
     const fnameSummary = `codg_summary_${safePid}_${stamp}.csv`;
     downloadCSV(summary, fnameSummary);
 
-    // ④ 画面表示
-    const codgText =
-      (estAll.codg === null)
-        ? `CoDG: NA（${estAll.note}）`
-        : `CoDG: ${estAll.codg.toFixed(3)} (L=${estAll.x_left.toFixed(3)}, R=${estAll.x_right.toFixed(3)})`;
+    // ④ 画面表示（ユーザー向け）
+    let msg = "CSVを保存しました。必要ならもう一度実施できます。\n\n";
 
-    showDone(`Saved:\n- ${fnameTrials}\n- ${fnameSummary}\n\n${codgText}\nTrials: ${logs.length}`);
+    if (estAll.codg === null) {
+      msg += "⚠️ CoDGを計算できませんでした。\n";
+      msg += `理由：${estAll.note}\n`;
+      msg += "（反応が極端に偏った場合などに起こります。データ自体は保存されています。）\n\n";
+    } else {
+      msg += `🎉 あなたのCoDGは【${estAll.codg.toFixed(3)}】でした！\n`;
+      msg += "（値が大きいほど、「自分を見ている」と判断する範囲が広い傾向を表します）\n\n";
+      msg += `【詳細】左境界 L=${estAll.x_left.toFixed(3)} / 右境界 R=${estAll.x_right.toFixed(3)}\n\n`;
+    }
+
+    msg += `保存したファイル：\n- ${fnameTrials}\n- ${fnameSummary}\n`;
+    msg += `試行数：${logs.length}`;
+
+    showDone(msg);
   }
 
   function validateAssetsHint() {
@@ -459,3 +466,4 @@
   validateAssetsHint();
   showSetup();
 })();
+
