@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CoDG Task</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 16px; }
+    .container { max-width: 720px; margin: 0 auto; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin: 12px 0; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    label { font-size: 14px; color: #333; }
+    input { padding: 10px; border: 1px solid #ccc; border-radius: 10px; font-size: 16px; }
+    button { padding: 14px 14px; border: 0; border-radius: 12px; font-size: 16px; cursor: pointer; }
+    .btn { background: #111; color: #fff; }
+    .btn:disabled { background: #777; cursor: not-allowed; }
+    .btn2 { background: #f2f2f2; }
+    #stage{
+  position: relative;
+  height: 70vh;                 /* ここで画面内のステージ高さを固定 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+    #fix{
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 108px;   /* 36 × 3 = 108 */
+  line-height: 1;
+  line-height: 1;
+  pointer-events: none;
+}
+    #stimWrap{
+  height: 45vh;                 /* 画像領域の高さ固定（ここがズレ防止の肝） */
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+    #stim{
+  max-width: 90vw;
+  max-height: 45vh;
+  border-radius: 10px;
+  opacity: 0;                   /* 初期は非表示 */
+  transition: opacity 0.05s linear;
+}
+    .respRow { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .note { font-size: 13px; color: #555; line-height: 1.5; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>CoDG 課題（スマホ対応 Web版）</h1>
+
+    <div class="card" id="setupCard">
+      <div class="row">
+        <div>
+          <label for="pid">参加者ID（匿名）</label><br/>
+          <input id="pid" placeholder="例: P001" />
+        </div>
+        <div>
+          <button class="btn" id="startBtn">開始</button>
+        </div>
+      </div>
+      <p class="note">
+        反応ボタン：左 / 自分（正面） / 右。<br/>
+        終了後にCSV（trialログ）がダウンロードされます。
+      </p>
+      <p class="note mono" id="assetHint"></p>
+    </div>
+
+    <div class="card" id="taskCard" style="display:none;">
+      <div class="row" style="justify-content: space-between;">
+        <div>Trial: <span id="trialNum">0</span> / <span id="trialTotal">0</span></div>
+        <div class="mono" id="status"></div>
+      </div>
+
+      <div id="stage">
+        <div id="fix"></div>
+        <div id="stimWrap"><img id="stim" alt="stimulus" /></div>
+      </div>
+
+      <div class="respRow" style="margin-top: 10px;">
+        <button class="btn2" id="btnLeft">左を見ている</button>
+        <button class="btn2" id="btnDirect">自分を見ている</button>
+        <button class="btn2" id="btnRight">右を見ている</button>
+      </div>
+
+      <p class="note">
+        ※ 誤タップ防止のため、反応後は少し待って次試行に移ります。
+      </p>
+    </div>
+
+    <div class="card" id="doneCard" style="display:none;">
+      <h2>完了</h2>
+      <p class="note">CSVを保存しました。必要ならもう一度実施できます。</p>
+      <button class="btn" id="restartBtn">最初に戻る</button>
+      <p class="note mono" id="doneMsg"></p>
+    </div>
+  </div>
+
+  <script src="./task.js"></script>
+</body>
+</html>
