@@ -32,6 +32,7 @@
   const btnLeft = document.getElementById("btnLeft");
   const btnDirect = document.getElementById("btnDirect");
   const btnRight = document.getElementById("btnRight");
+  const calibStartBtn = document.getElementById("calibStartBtn"); // ←追加
 
   // ====== Calibration DOM（追加済み） ======
   const calibCard = document.getElementById("calibCard");
@@ -79,10 +80,16 @@ function startTask() {
   trialTotalEl.textContent = String(trials.length);
   trialNumEl.textContent = "1";
 
-  // ★校正画面へ（自動 startCalibration はしない）
-  showCalib();
-  if (calibBadge) calibBadge.textContent = "「カメラを開始」を押してください";
-  if (calibOkBtn) calibOkBtn.disabled = true;
+  // ★ここで校正画面へ（カメラはボタンで開始）
+showCalib();
+if (calibBadge) calibBadge.textContent = "「カメラを開始」を押してください";
+if (calibOkBtn) calibOkBtn.disabled = true;
+
+// 楕円だけ先に表示（カメラ前でも表示できる）
+try {
+  resizeCalibCanvas();
+  drawOverlay(false, null);
+} catch (_) {}
 }
   
   // Fisher–Yates shuffle
@@ -724,6 +731,12 @@ say("5/8: FaceDetection 初期化OK");
       await startCalibration();
     };
 
+    if (calibStartBtn) {
+  calibStartBtn.addEventListener("click", async () => {
+    calibBadge.textContent = "カメラ起動中…";
+    await startCalibration();
+  });
+}
     // iPhoneは click が不安定なことがあるので touchstart も保険で登録
     calibCamBtn.addEventListener("click", handler);
     calibCamBtn.addEventListener("touchstart", handler, { passive: true });
