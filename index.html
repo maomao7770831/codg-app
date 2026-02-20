@@ -16,39 +16,72 @@
     .btn:disabled { background: #777; cursor: not-allowed; }
     .btn2 { background: #f2f2f2; }
     #stage{
-  position: relative;
-  height: 70vh;                 /* ここで画面内のステージ高さを固定 */
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+      position: relative;
+      height: 70vh;                 /* ここで画面内のステージ高さを固定 */
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
     #fix{
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 108px;   /* 36 × 3 = 108 */
-  line-height: 1;
-  line-height: 1;
-  pointer-events: none;
-}
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 108px;   /* 36 × 3 = 108 */
+      line-height: 1;
+      pointer-events: none;
+    }
     #stimWrap{
-  height: 45vh;                 /* 画像領域の高さ固定（ここがズレ防止の肝） */
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+      height: 45vh;                 /* 画像領域の高さ固定（ここがズレ防止の肝） */
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
     #stim{
-  max-width: 90vw;
-  max-height: 45vh;
-  border-radius: 10px;
-  opacity: 0;                   /* 初期は非表示 */
-  transition: opacity 0.05s linear;
-}
+      max-width: 90vw;
+      max-height: 45vh;
+      border-radius: 10px;
+      opacity: 0;                   /* 初期は非表示 */
+      transition: opacity 0.05s linear;
+    }
     .respRow { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
     .note { font-size: 13px; color: #555; line-height: 1.5; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+
+    /* ===== 校正画面（追加） ===== */
+    #calibStage{
+      position: relative;
+      width: min(86vw, 360px);
+      aspect-ratio: 3 / 4;
+      margin: 14px auto;
+      border-radius: 18px;
+      overflow: hidden;
+      background: #111;
+    }
+    #calibVideo{
+      width:100%;
+      height:100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* 前面カメラ鏡像 */
+      display:block;
+    }
+    #calibCanvas{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      pointer-events:none;
+    }
+    #calibBadge{
+      position:absolute;
+      left:12px; top:12px;
+      padding:6px 10px;
+      border-radius:999px;
+      font-size:12px;
+      background: rgba(0,0,0,0.55);
+      color:#fff;
+    }
   </style>
 </head>
 <body>
@@ -70,6 +103,30 @@
         終了後にCSV（trialログ）がダウンロードされます。
       </p>
       <p class="note mono" id="assetHint"></p>
+    </div>
+
+    <!-- ★追加：校正画面（顔枠＋自動OK判定） -->
+    <div class="card" id="calibCard" style="display:none;">
+      <h2>距離合わせ（カメラ）</h2>
+      <p class="note" style="margin-top:8px;">
+        スマホを前後に動かして、<b>顔が楕円枠にぴったり入る</b>位置で止めてください。<br/>
+        OKが出たら、その距離のまま課題を開始します。
+      </p>
+
+      <div id="calibStage">
+        <video id="calibVideo" autoplay playsinline muted></video>
+        <canvas id="calibCanvas"></canvas>
+        <div id="calibBadge">調整中…</div>
+      </div>
+
+      <div class="row" style="justify-content:center;">
+        <button class="btn2" id="calibBackBtn" type="button">戻る</button>
+        <button class="btn" id="calibOkBtn" type="button" disabled>OK（この距離で開始）</button>
+      </div>
+
+      <p class="note" style="margin-top:10px;">
+        ※ この画面は距離チェックのためにカメラを使います（撮影・保存はしません）。
+      </p>
     </div>
 
     <div class="card" id="taskCard" style="display:none;">
@@ -101,6 +158,10 @@
       <p class="note mono" id="doneMsg"></p>
     </div>
   </div>
+
+  <!-- ★追加：MediaPipe（顔検出） ※task.jsより先に読み込む -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
   <script src="./task.js"></script>
 </body>
