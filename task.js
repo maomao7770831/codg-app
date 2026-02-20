@@ -33,6 +33,15 @@
   const btnDirect = document.getElementById("btnDirect");
   const btnRight = document.getElementById("btnRight");
 
+  // ====== Calibration DOM（追加済み） ======
+  const calibCard = document.getElementById("calibCard");
+  const calibStage = document.getElementById("calibStage");
+  const calibVideo = document.getElementById("calibVideo");
+  const calibCanvas = document.getElementById("calibCanvas");
+  const calibBadge = document.getElementById("calibBadge");
+  const calibBackBtn = document.getElementById("calibBackBtn");
+  const calibOkBtn = document.getElementById("calibOkBtn");
+
   // ====== 状態 ======
   let trials = [];
   let logs = [];
@@ -40,6 +49,12 @@
   let awaitingResponse = false;
   let stimOnsetPerf = null;
   let currentTrial = null;
+
+  // ====== Calibration 状態 ======
+  let faceDetector = null;
+  let cam = null;
+  let calibOkFrames = 0;
+  let calibRunning = false;
 
   function nowISO() {
     return new Date().toISOString();
@@ -87,23 +102,213 @@
     setupCard.style.display = "";
     taskCard.style.display = "none";
     doneCard.style.display = "none";
+    if (calibCard) calibCard.style.display = "none";
+  }
+
+  function showCalib() {
+    setupCard.style.display = "none";
+    taskCard.style.display = "none";
+    doneCard.style.display = "none";
+    if (calibCard) calibCard.style.display = "";
   }
 
   function showTask() {
     setupCard.style.display = "none";
     taskCard.style.display = "";
     doneCard.style.display = "none";
+    if (calibCard) calibCard.style.display = "none";
   }
 
   function showDone(msg) {
     setupCard.style.display = "none";
     taskCard.style.display = "none";
     doneCard.style.display = "";
+    if (calibCard) calibCard.style.display = "none";
     doneMsgEl.textContent = msg || "";
   }
 
   function sleep(ms) {
     return new Promise(res => setTimeout(res, ms));
+  }
+
+  // ====== Calibration (楕円枠 + 自動OK判定) ======
+  function resizeCalibCanvas() {
+    if (!calibStage || !calibCanvas) return;
+    const rect = calibStage.getBoundingClientRect();
+    calibCanvas.width = Math.round(rect.width * devicePixelRatio);
+    calibCanvas.height = Math.round(rect.height * devicePixelRatio);
+  }
+
+  function drawOverlay(statusOk, faceBoxPx) {
+    const ctx = calibCanvas.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, calibCanvas.width, calibCanvas.height);
+
+    const rect = calibStage.getBoundingClientRect();
+    const w = rect.width;
+    const h = rect.height;
+
+    // CSS座標で描画するためにスケール
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+
+    // 楕円フレーム（目標）
+    const frameW = w * 0.62;
+    const frameH = h * 0.72;
+    const cx = w / 2;
+    const cy = h / 2;
+
+    // 外側を暗くして楕円を抜く
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.beginPath();
+    ctx.rect(0, 0, w, h);
+    ctx.ellipse(cx, cy, frameW / 2, frameH / 2, 0, 0, Math.PI * 2);
+    ctx.fill("evenodd");
+
+    // 楕円枠
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = statusOk ? "rgba(0,255,120,0.95)" : "rgba(255,255,255,0.85)";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, frameW / 2, frameH / 2, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 顔bbox（デバッグ用：不要ならコメントアウト可）
+    if (faceBoxPx) {
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = statusOk ? "rgba(0,255,120,0.9)" : "rgba(255,180,0,0.9)";
+      ctx.strokeRect(faceBoxPx.x, faceBoxPx.y, faceBoxPx.w, faceBoxPx.h);
+    }
+
+    return { cx, cy, frameW, frameH };
+  }
+
+  function checkFaceInFrame(faceBox, frame) {
+    // 顔bbox中心
+    const faceCx = faceBox.x + faceBox.w / 2;
+    const faceCy = faceBox.y + faceBox.h / 2;
+
+    // 大きさ：顔の高さが楕円高さに近いか（距離の代理指標）
+    const sizeRatio = faceBox.h / frame.frameH; // 1.0付近が理想
+    const withinSize = (sizeRatio >= 0.88 && sizeRatio <= 1.12);
+
+    // 中心：顔中心が楕円中心からズレすぎないか
+    const dx = Math.abs(faceCx - frame.cx) / frame.frameW;
+    const dy = Math.abs(faceCy - frame.cy) / frame.frameH;
+    const withinCenter = (dx <= 0.12 && dy <= 0.12);
+
+    return { ok: withinSize && withinCenter, sizeRatio, dx, dy };
+  }
+
+  function ensureMediaPipeLoaded() {
+    // index.htmlで MediaPipe を読み込んでいないと動かない
+    return (typeof FaceDetection !== "undefined") && (typeof Camera !== "undefined");
+  }
+
+  async function startCalibration() {
+    if (!calibCard) {
+      // 校正UIがないなら、そのままタスクへ
+      showTask();
+      runTrial(trials[0]);
+      return;
+    }
+
+    if (!ensureMediaPipeLoaded()) {
+      calibBadge.textContent = "カメラ校正のライブラリが読み込めません（index.htmlのscript順を確認）";
+      calibOkBtn.disabled = true;
+      return;
+    }
+
+    calibOkBtn.disabled = true;
+    calibOkFrames = 0;
+    calibRunning = true;
+    calibBadge.textContent = "カメラ起動中…";
+
+    resizeCalibCanvas();
+    window.addEventListener("resize", resizeCalibCanvas);
+
+    // MediaPipe FaceDetection 初期化
+    faceDetector = new FaceDetection.FaceDetection({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+    });
+    faceDetector.setOptions({
+      model: "short",
+      minDetectionConfidence: 0.6
+    });
+
+    faceDetector.onResults((results) => {
+      if (!calibRunning) return;
+
+      const rect = calibStage.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+
+      if (results.detections && results.detections.length > 0) {
+        const det = results.detections[0];
+        const rb = det.locationData?.relativeBoundingBox;
+
+        if (rb) {
+          const faceBoxPx = {
+            x: rb.xMin * w,
+            y: rb.yMin * h,
+            w: rb.width * w,
+            h: rb.height * h
+          };
+
+          const frame = drawOverlay(false, faceBoxPx);
+          const chk = checkFaceInFrame(faceBoxPx, frame);
+
+          if (chk.ok) calibOkFrames += 1;
+          else calibOkFrames = 0;
+
+          const stable = calibOkFrames >= 12; // 連続OKフレーム数（端末fpsに依存）
+
+          if (stable) {
+            drawOverlay(true, faceBoxPx);
+            calibBadge.textContent = "OK！その距離で固定してください";
+            calibOkBtn.disabled = false;
+          } else {
+            calibBadge.textContent = "調整中…（顔を楕円枠にぴったり）";
+            calibOkBtn.disabled = true;
+          }
+        } else {
+          // relativeBoundingBoxが取れない環境（稀）：一旦NG扱い
+          drawOverlay(false, null);
+          calibOkFrames = 0;
+          calibBadge.textContent = "顔情報を取得できません（別端末/別ブラウザで試してください）";
+          calibOkBtn.disabled = true;
+        }
+      } else {
+        drawOverlay(false, null);
+        calibOkFrames = 0;
+        calibBadge.textContent = "顔が見つかりません（明るい場所で正面を向いて）";
+        calibOkBtn.disabled = true;
+      }
+    });
+
+    cam = new Camera.Camera(calibVideo, {
+      onFrame: async () => {
+        if (!calibRunning) return;
+        await faceDetector.send({ image: calibVideo });
+      },
+      width: 640,
+      height: 480
+    });
+
+    try {
+      await cam.start();
+      calibBadge.textContent = "調整中…（顔を楕円枠にぴったり）";
+    } catch (e) {
+      calibBadge.textContent = "カメラが使えません（許可/設定を確認）";
+      calibOkBtn.disabled = true;
+    }
+  }
+
+  async function stopCalibration() {
+    calibRunning = false;
+    window.removeEventListener("resize", resizeCalibCanvas);
+
+    try { if (cam) await cam.stop(); } catch (_) {}
+    cam = null;
+    faceDetector = null;
   }
 
   // ====== CoDG 推定（終了時）======
@@ -448,15 +653,33 @@
     trialTotalEl.textContent = String(trials.length);
     trialNumEl.textContent = "1";
 
-    showTask();
-    runTrial(trials[0]);
+    // ★ここで校正画面へ
+    showCalib();
+    startCalibration();
   }
 
   // ====== イベント ======
   startBtn.addEventListener("click", startTask);
+
   restartBtn.addEventListener("click", () => {
     showSetup();
   });
+
+  // 校正画面：戻る / OK
+  if (calibBackBtn) {
+    calibBackBtn.addEventListener("click", async () => {
+      await stopCalibration();
+      showSetup();
+    });
+  }
+
+  if (calibOkBtn) {
+    calibOkBtn.addEventListener("click", async () => {
+      await stopCalibration();
+      showTask();
+      runTrial(trials[0]);
+    });
+  }
 
   btnLeft.addEventListener("click", () => recordResponse("Left"));
   btnDirect.addEventListener("click", () => recordResponse("Direct"));
