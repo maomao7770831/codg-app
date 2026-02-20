@@ -205,11 +205,10 @@
 
   async function startCalibration() {
     if (!calibCard) {
-      // 校正UIがないなら、そのままタスクへ
-      showTask();
-      runTrial(trials[0]);
-      return;
-    }
+  alert("キャリブレーション画面（calibCard）が見つかりません。スマホが古いindex.htmlを読んでいる可能性があります。URLに ?v=1 を付けて開き直してください。");
+  showSetup();
+  return;
+}
 
     if (!ensureMediaPipeLoaded()) {
       calibBadge.textContent = "カメラ校正のライブラリが読み込めません（index.htmlのscript順を確認）";
