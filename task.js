@@ -203,15 +203,15 @@
     return (typeof FaceDetection !== "undefined") && (typeof Camera !== "undefined");
   }
 
-  async function startCalibration() {
+    async function startCalibration() {
     if (!calibCard) {
-  alert("キャリブレーション画面（calibCard）が見つかりません。スマホが古いindex.htmlを読んでいる可能性があります。URLに ?v=1 を付けて開き直してください。");
-  showSetup();
-  return;
-}
+      showTask();
+      runTrial(trials[0]);
+      return;
+    }
 
-    if (!ensureMediaPipeLoaded()) {
-      calibBadge.textContent = "カメラ校正のライブラリが読み込めません（index.htmlのscript順を確認）";
+    if (typeof FaceDetection === "undefined") {
+      calibBadge.textContent = "顔検出ライブラリが読み込めません（index.htmlのscript順を確認）";
       calibOkBtn.disabled = true;
       return;
     }
@@ -224,14 +224,11 @@
     resizeCalibCanvas();
     window.addEventListener("resize", resizeCalibCanvas);
 
-    // MediaPipe FaceDetection 初期化
+    // FaceDetection 初期化（毎回作る）
     faceDetector = new FaceDetection.FaceDetection({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
     });
-    faceDetector.setOptions({
-      model: "short",
-      minDetectionConfidence: 0.6
-    });
+    faceDetector.setOptions({ model: "short", minDetectionConfidence: 0.6 });
 
     faceDetector.onResults((results) => {
       if (!calibRunning) return;
@@ -258,7 +255,7 @@
           if (chk.ok) calibOkFrames += 1;
           else calibOkFrames = 0;
 
-          const stable = calibOkFrames >= 12; // 連続OKフレーム数（端末fpsに依存）
+          const stable = calibOkFrames >= 10; // iPhoneはfpsが安定しないので少し短め推奨
 
           if (stable) {
             drawOverlay(true, faceBoxPx);
@@ -269,10 +266,9 @@
             calibOkBtn.disabled = true;
           }
         } else {
-          // relativeBoundingBoxが取れない環境（稀）：一旦NG扱い
           drawOverlay(false, null);
           calibOkFrames = 0;
-          calibBadge.textContent = "顔情報を取得できません（別端末/別ブラウザで試してください）";
+          calibBadge.textContent = "顔情報を取得できません（別ブラウザ/別端末で試してください）";
           calibOkBtn.disabled = true;
         }
       } else {
@@ -283,25 +279,50 @@
       }
     });
 
-    cam = new Camera.Camera(calibVideo, {
-      onFrame: async () => {
-        if (!calibRunning) return;
-        await faceDetector.send({ image: calibVideo });
-      },
-      width: 640,
-      height: 480
-    });
-
+    // ===== iPhone堅牢：Camera Utilsではなく getUserMedia で起動 =====
     try {
-      await cam.start();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: "user",
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        },
+        audio: false
+      });
+
+      calibVideo.srcObject = stream;
+
+      // メタデータロード待ち → 再生開始（ここがiOSで重要）
+      await new Promise((resolve) => {
+        calibVideo.onloadedmetadata = () => resolve();
+      });
+
+      // iOSは play() が Promise 返すので await
+      await calibVideo.play();
+
       calibBadge.textContent = "調整中…（顔を楕円枠にぴったり）";
-      } catch (e) {
-    const name = (e && e.name) ? e.name : "unknown";
-    const msg  = (e && e.message) ? e.message : "";
-    calibBadge.textContent = `カメラ起動失敗: ${name} ${msg}`;
-    calibOkBtn.disabled = true;
-    console.error(e);
- 　　　}
+
+      // 解析ループ（requestAnimationFrame）
+      const loop = async () => {
+        if (!calibRunning) return;
+        try {
+          await faceDetector.send({ image: calibVideo });
+        } catch (e) {
+          // ここで止まる場合もあるので表示
+          calibBadge.textContent = `解析エラー: ${e?.name || "unknown"}`;
+        }
+        requestAnimationFrame(loop);
+      };
+      requestAnimationFrame(loop);
+
+    } catch (e) {
+      const name = e?.name || "unknown";
+      const msg = e?.message || "";
+      calibBadge.textContent = `カメラ起動失敗: ${name} ${msg}`;
+      calibOkBtn.disabled = true;
+      calibRunning = false;
+      console.error(e);
+    }
   }
 
   async function stopCalibration() {
