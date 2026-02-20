@@ -325,13 +325,21 @@
     }
   }
 
-  async function stopCalibration() {
+   async function stopCalibration() {
     calibRunning = false;
     window.removeEventListener("resize", resizeCalibCanvas);
 
-    try { if (cam) await cam.stop(); } catch (_) {}
-    cam = null;
+    // getUserMediaの停止（重要）
+    try {
+      const stream = calibVideo.srcObject;
+      if (stream && stream.getTracks) {
+        stream.getTracks().forEach(t => t.stop());
+      }
+    } catch (_) {}
+
+    calibVideo.srcObject = null;
     faceDetector = null;
+    calibOkFrames = 0;
   }
 
   // ====== CoDG 推定（終了時）======
