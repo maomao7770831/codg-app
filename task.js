@@ -295,10 +295,13 @@
     try {
       await cam.start();
       calibBadge.textContent = "調整中…（顔を楕円枠にぴったり）";
-    } catch (e) {
-      calibBadge.textContent = "カメラが使えません（許可/設定を確認）";
-      calibOkBtn.disabled = true;
-    }
+      } catch (e) {
+    const name = (e && e.name) ? e.name : "unknown";
+    const msg  = (e && e.message) ? e.message : "";
+    calibBadge.textContent = `カメラ起動失敗: ${name} ${msg}`;
+    calibOkBtn.disabled = true;
+    console.error(e);
+ 　　　}
   }
 
   async function stopCalibration() {
