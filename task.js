@@ -204,31 +204,41 @@
   }
 
     async function startCalibration() {
-    if (!calibCard) {
-      showTask();
-      runTrial(trials[0]);
+  calibOkBtn.disabled = true;
+  calibOkFrames = 0;
+  calibRunning = true;
+
+  const say = (t) => { calibBadge.textContent = t; console.log("[calib]", t); };
+
+  try {
+    say("1/8: 開始ボタン押下OK");
+
+    // 重要：API存在チェック
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      say("❌ mediaDevices/getUserMedia が使えません。Safariで開いてますか？（アプリ内ブラウザだと不可なことが多い）");
+      calibRunning = false;
       return;
     }
-
-    if (typeof FaceDetection === "undefined") {
-      calibBadge.textContent = "顔検出ライブラリが読み込めません（index.htmlのscript順を確認）";
-      calibOkBtn.disabled = true;
-      return;
-    }
-
-    calibOkBtn.disabled = true;
-    calibOkFrames = 0;
-    calibRunning = true;
-    calibBadge.textContent = "カメラ起動中…";
+    say("2/8: getUserMedia API OK");
 
     resizeCalibCanvas();
     window.addEventListener("resize", resizeCalibCanvas);
+    say("3/8: canvas準備OK");
 
-    // FaceDetection 初期化（毎回作る）
+    // FaceDetection 読み込みチェック
+    if (typeof FaceDetection === "undefined") {
+      say("❌ FaceDetectionが未定義。index.htmlでmediapipe scriptがtask.jsより先か確認");
+      calibRunning = false;
+      return;
+    }
+    say("4/8: FaceDetection OK");
+
+    // FaceDetection初期化
     faceDetector = new FaceDetection.FaceDetection({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
     });
     faceDetector.setOptions({ model: "short", minDetectionConfidence: 0.6 });
+    say("5/8: FaceDetection 初期化OK");
 
     faceDetector.onResults((results) => {
       if (!calibRunning) return;
@@ -240,35 +250,32 @@
       if (results.detections && results.detections.length > 0) {
         const det = results.detections[0];
         const rb = det.locationData?.relativeBoundingBox;
-
-        if (rb) {
-          const faceBoxPx = {
-            x: rb.xMin * w,
-            y: rb.yMin * h,
-            w: rb.width * w,
-            h: rb.height * h
-          };
-
-          const frame = drawOverlay(false, faceBoxPx);
-          const chk = checkFaceInFrame(faceBoxPx, frame);
-
-          if (chk.ok) calibOkFrames += 1;
-          else calibOkFrames = 0;
-
-          const stable = calibOkFrames >= 10; // iPhoneはfpsが安定しないので少し短め推奨
-
-          if (stable) {
-            drawOverlay(true, faceBoxPx);
-            calibBadge.textContent = "OK！その距離で固定してください";
-            calibOkBtn.disabled = false;
-          } else {
-            calibBadge.textContent = "調整中…（顔を楕円枠にぴったり）";
-            calibOkBtn.disabled = true;
-          }
-        } else {
+        if (!rb) {
           drawOverlay(false, null);
           calibOkFrames = 0;
-          calibBadge.textContent = "顔情報を取得できません（別ブラウザ/別端末で試してください）";
+          calibOkBtn.disabled = true;
+          calibBadge.textContent = "顔情報取得に失敗（別ブラウザ/別端末）";
+          return;
+        }
+
+        const faceBoxPx = {
+          x: rb.xMin * w, y: rb.yMin * h,
+          w: rb.width * w, h: rb.height * h
+        };
+
+        const frame = drawOverlay(false, faceBoxPx);
+        const chk = checkFaceInFrame(faceBoxPx, frame);
+
+        if (chk.ok) calibOkFrames += 1;
+        else calibOkFrames = 0;
+
+        const stable = calibOkFrames >= 10;
+        if (stable) {
+          drawOverlay(true, faceBoxPx);
+          calibBadge.textContent = "OK！その距離で固定してください";
+          calibOkBtn.disabled = false;
+        } else {
+          calibBadge.textContent = "調整中…（顔を楕円枠にぴったり）";
           calibOkBtn.disabled = true;
         }
       } else {
@@ -279,51 +286,59 @@
       }
     });
 
-    // ===== iPhone堅牢：Camera Utilsではなく getUserMedia で起動 =====
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: "user",
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        },
-        audio: false
-      });
+    // ここが本丸：カメラ起動
+    say("6/8: getUserMedia 呼び出し中…");
 
-      calibVideo.srcObject = stream;
+    // ★iPhoneで安定しやすい設定（facingModeは object で指定）
+    const constraints = {
+      audio: false,
+      video: {
+        facingMode: { ideal: "user" },
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      }
+    };
 
-      // メタデータロード待ち → 再生開始（ここがiOSで重要）
-      await new Promise((resolve) => {
-        calibVideo.onloadedmetadata = () => resolve();
-      });
+    // ★タイムアウトを付ける（固まり対策）
+    const stream = await Promise.race([
+      navigator.mediaDevices.getUserMedia(constraints),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("getUserMedia_timeout")), 8000))
+    ]);
 
-      // iOSは play() が Promise 返すので await
-      await calibVideo.play();
+    say("7/8: stream取得OK");
 
-      calibBadge.textContent = "調整中…（顔を楕円枠にぴったり）";
+    calibVideo.srcObject = stream;
 
-      // 解析ループ（requestAnimationFrame）
-      const loop = async () => {
-        if (!calibRunning) return;
-        try {
-          await faceDetector.send({ image: calibVideo });
-        } catch (e) {
-          // ここで止まる場合もあるので表示
-          calibBadge.textContent = `解析エラー: ${e?.name || "unknown"}`;
-        }
-        requestAnimationFrame(loop);
-      };
+    // iOSはメタデータ待ちが必須級
+    await Promise.race([
+      new Promise((res) => { calibVideo.onloadedmetadata = () => res(); }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("metadata_timeout")), 5000))
+    ]);
+
+    say("8/8: metadata OK → play()");
+
+    await calibVideo.play();
+    say("🎥 カメラ起動完了：解析開始中…");
+
+    const loop = async () => {
+      if (!calibRunning) return;
+      try {
+        await faceDetector.send({ image: calibVideo });
+      } catch (e) {
+        calibBadge.textContent = `解析エラー: ${e?.name || "unknown"}`;
+      }
       requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
 
-    } catch (e) {
-      const name = e?.name || "unknown";
-      const msg = e?.message || "";
-      calibBadge.textContent = `カメラ起動失敗: ${name} ${msg}`;
-      calibOkBtn.disabled = true;
-      calibRunning = false;
-      console.error(e);
-    }
+  } catch (e) {
+    const name = e?.name || "Error";
+    const msg = e?.message || String(e);
+    calibBadge.textContent = `❌ カメラ起動失敗: ${name} ${msg}`;
+    calibRunning = false;
+    console.error(e);
   }
+}
 
    async function stopCalibration() {
     calibRunning = false;
