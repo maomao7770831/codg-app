@@ -247,65 +247,33 @@ function startTask() {
     say("3/8: canvas準備OK");
 
     // FaceDetection 読み込みチェック
-    if (typeof FaceDetection === "undefined") {
-      say("❌ FaceDetectionが未定義。index.htmlでmediapipe scriptがtask.jsより先か確認");
-      calibRunning = false;
-      return;
-    }
-    say("4/8: FaceDetection OK");
+if (typeof window.FaceDetection === "undefined") {
+  say("❌ FaceDetectionが未定義。face_detection.js が読み込めていません");
+  calibRunning = false;
+  return;
+}
+say("4/8: FaceDetection global OK");
 
-    // FaceDetection初期化
-    faceDetector = new FaceDetection.FaceDetection({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
-    });
-    faceDetector.setOptions({ model: "short", minDetectionConfidence: 0.6 });
-    say("5/8: FaceDetection 初期化OK");
+// ★ 環境差を吸収（FaceDetection か FaceDetection.FaceDetection のどっちでも動く）
+const FaceDetCtor =
+  (window.FaceDetection && window.FaceDetection.FaceDetection)
+    ? window.FaceDetection.FaceDetection
+    : window.FaceDetection;
 
-    faceDetector.onResults((results) => {
-      if (!calibRunning) return;
+if (typeof FaceDetCtor !== "function") {
+  say(`❌ FaceDetection ctorが見つかりません。typeof FaceDetection=${typeof window.FaceDetection}`);
+  say(`keys: ${Object.keys(window.FaceDetection || {}).join(",")}`);
+  calibRunning = false;
+  return;
+}
+say("4.5/8: FaceDetection ctor OK");
 
-      const rect = calibStage.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
-
-      if (results.detections && results.detections.length > 0) {
-        const det = results.detections[0];
-        const rb = det.locationData?.relativeBoundingBox;
-        if (!rb) {
-          drawOverlay(false, null);
-          calibOkFrames = 0;
-          calibOkBtn.disabled = true;
-          calibBadge.textContent = "顔情報取得に失敗（別ブラウザ/別端末）";
-          return;
-        }
-
-        const faceBoxPx = {
-          x: rb.xMin * w, y: rb.yMin * h,
-          w: rb.width * w, h: rb.height * h
-        };
-
-        const frame = drawOverlay(false, faceBoxPx);
-        const chk = checkFaceInFrame(faceBoxPx, frame);
-
-        if (chk.ok) calibOkFrames += 1;
-        else calibOkFrames = 0;
-
-        const stable = calibOkFrames >= 10;
-        if (stable) {
-          drawOverlay(true, faceBoxPx);
-          calibBadge.textContent = "OK！その距離で固定してください";
-          calibOkBtn.disabled = false;
-        } else {
-          calibBadge.textContent = "調整中…（顔を楕円枠にぴったり）";
-          calibOkBtn.disabled = true;
-        }
-      } else {
-        drawOverlay(false, null);
-        calibOkFrames = 0;
-        calibBadge.textContent = "顔が見つかりません（明るい場所で正面を向いて）";
-        calibOkBtn.disabled = true;
-      }
-    });
+// FaceDetection初期化
+faceDetector = new FaceDetCtor({
+  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+});
+faceDetector.setOptions({ model: "short", minDetectionConfidence: 0.6 });
+say("5/8: FaceDetection 初期化OK");
 
     // ここが本丸：カメラ起動
     say("6/8: getUserMedia 呼び出し中…");
