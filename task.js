@@ -41,6 +41,7 @@
   const calibBadge = document.getElementById("calibBadge");
   const calibBackBtn = document.getElementById("calibBackBtn");
   const calibOkBtn = document.getElementById("calibOkBtn");
+  const calibCamBtn = document.getElementById("calibCamBtn"); // ★追加（カメラ開始ボタン）
 
   // ====== 状態 ======
   let trials = [];
@@ -64,6 +65,26 @@
     return navigator.userAgent || "";
   }
 
+function startTask() {
+  const pid = (pidInput.value || "").trim();
+  if (!pid) {
+    alert("参加者IDを入力してください（例: P001）");
+    return;
+  }
+
+  logs = [];
+  trials = makeTrialList();
+  tIndex = 0;
+
+  trialTotalEl.textContent = String(trials.length);
+  trialNumEl.textContent = "1";
+
+  // ★校正画面へ（自動 startCalibration はしない）
+  showCalib();
+  if (calibBadge) calibBadge.textContent = "「カメラを開始」を押してください";
+  if (calibOkBtn) calibOkBtn.disabled = true;
+}
+  
   // Fisher–Yates shuffle
   function shuffle(array) {
     for (let i = array.length - 1; i > 0; i--) {
@@ -725,6 +746,25 @@
       showTask();
       runTrial(trials[0]);
     });
+  }
+
+    // 校正画面：カメラ開始（押下検知を100%見える化）
+  if (calibCamBtn) {
+    const handler = async () => {
+      calibBadge.textContent = "✅ ボタン押下を検知しました（起動処理へ）";
+      console.log("[calib] calibCamBtn pressed");
+      await startCalibration();
+    };
+
+    // iPhoneは click が不安定なことがあるので touchstart も保険で登録
+    calibCamBtn.addEventListener("click", handler);
+    calibCamBtn.addEventListener("touchstart", handler, { passive: true });
+  } else {
+    // これが出るなら：HTMLにボタンがない/ID違い/古いHTMLを見てる
+    if (calibBadge) {
+      calibBadge.textContent = "❌ calibCamBtn が見つかりません（HTMLのid='calibCamBtn' を確認 / キャッシュの可能性）";
+    }
+    console.log("[calib] calibCamBtn is null");
   }
 
   btnLeft.addEventListener("click", () => recordResponse("Left"));
