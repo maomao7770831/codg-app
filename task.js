@@ -1,22 +1,22 @@
-/// CoDG Task (log + end-of-task CoDG estimate)
-// 2 faces (M1, F1) × 11 gaze levels × 5 repeats = 110 trials
+// CoDG Task（カメラなし版）
 (() => {
+
   // ====== 設定 ======
   const GAZE_LEVELS = [-12, -9, -6, -3, -1, 0, 1, 3, 6, 9, 12];
-  const FACES = ["M1", "F1"];           // 画像ファイル名の prefix
-  const REPEATS = 5;                    // ランダム提示回数
-  const EXT = "png";                    // "png" or "jpg" に合わせて変更
-  const STIM_DIR = "stimuli";           // 刺激フォルダ名
+  const FACES = ["M1", "F1"];
+  const REPEATS = 5;
+  const EXT = "png";
+  const STIM_DIR = "stimuli";
 
-  // タイミング（ms）
-  const FIX_MS = 1000;                  // 十字
-  const STIM_MS = 500;                  // 顔画像（反応はその後もOK）
-  const POST_RESP_MS = 250;             // 反応後の待ち（誤タップ防止）
+  const FIX_MS = 1000;
+  const STIM_MS = 500;
+  const POST_RESP_MS = 250;
 
   // ====== DOM ======
   const setupCard = document.getElementById("setupCard");
   const taskCard = document.getElementById("taskCard");
   const doneCard = document.getElementById("doneCard");
+
   const pidInput = document.getElementById("pid");
   const startBtn = document.getElementById("startBtn");
   const restartBtn = document.getElementById("restartBtn");
@@ -32,17 +32,6 @@
   const btnLeft = document.getElementById("btnLeft");
   const btnDirect = document.getElementById("btnDirect");
   const btnRight = document.getElementById("btnRight");
-  const calibStartBtn = document.getElementById("calibStartBtn"); // ←追加
-
-  // ====== Calibration DOM（追加済み） ======
-  const calibCard = document.getElementById("calibCard");
-  const calibStage = document.getElementById("calibStage");
-  const calibVideo = document.getElementById("calibVideo");
-  const calibCanvas = document.getElementById("calibCanvas");
-  const calibBadge = document.getElementById("calibBadge");
-  const calibBackBtn = document.getElementById("calibBackBtn");
-  const calibOkBtn = document.getElementById("calibOkBtn");
-  const calibCamBtn = document.getElementById("calibCamBtn"); // ★追加（カメラ開始ボタン）
 
   // ====== 状態 ======
   let trials = [];
@@ -52,12 +41,6 @@
   let stimOnsetPerf = null;
   let currentTrial = null;
 
-  // ====== Calibration 状態 ======
-  let faceDetector = null;
-  let cam = null;
-  let calibOkFrames = 0;
-  let calibRunning = false;
-
   function nowISO() {
     return new Date().toISOString();
   }
@@ -66,33 +49,6 @@
     return navigator.userAgent || "";
   }
 
-function startTask() {
-  const pid = (pidInput.value || "").trim();
-  if (!pid) {
-    alert("参加者IDを入力してください（例: P001）");
-    return;
-  }
-
-  logs = [];
-  trials = makeTrialList();
-  tIndex = 0;
-
-  trialTotalEl.textContent = String(trials.length);
-  trialNumEl.textContent = "1";
-
-  // ★ここで校正画面へ（カメラはボタンで開始）
-showCalib();
-if (calibBadge) calibBadge.textContent = "「カメラを開始」を押してください";
-if (calibOkBtn) calibOkBtn.disabled = true;
-
-// 楕円だけ先に表示（カメラ前でも表示できる）
-try {
-  resizeCalibCanvas();
-  drawOverlay(false, null);
-} catch (_) {}
-}
-  
-  // Fisher–Yates shuffle
   function shuffle(array) {
     for (let i = array.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -130,28 +86,18 @@ try {
     setupCard.style.display = "";
     taskCard.style.display = "none";
     doneCard.style.display = "none";
-    if (calibCard) calibCard.style.display = "none";
-  }
-
-  function showCalib() {
-    setupCard.style.display = "none";
-    taskCard.style.display = "none";
-    doneCard.style.display = "none";
-    if (calibCard) calibCard.style.display = "";
   }
 
   function showTask() {
     setupCard.style.display = "none";
     taskCard.style.display = "";
     doneCard.style.display = "none";
-    if (calibCard) calibCard.style.display = "none";
   }
 
   function showDone(msg) {
     setupCard.style.display = "none";
     taskCard.style.display = "none";
     doneCard.style.display = "";
-    if (calibCard) calibCard.style.display = "none";
     doneMsgEl.textContent = msg || "";
   }
 
@@ -159,221 +105,16 @@ try {
     return new Promise(res => setTimeout(res, ms));
   }
 
-  // ====== Calibration (楕円枠 + 自動OK判定) ======
-  function resizeCalibCanvas() {
-    if (!calibStage || !calibCanvas) return;
-    const rect = calibStage.getBoundingClientRect();
-    calibCanvas.width = Math.round(rect.width * devicePixelRatio);
-    calibCanvas.height = Math.round(rect.height * devicePixelRatio);
-  }
-
-  function drawOverlay(statusOk, faceBoxPx) {
-    const ctx = calibCanvas.getContext("2d");
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, calibCanvas.width, calibCanvas.height);
-
-    const rect = calibStage.getBoundingClientRect();
-    const w = rect.width;
-    const h = rect.height;
-
-    // CSS座標で描画するためにスケール
-    ctx.scale(devicePixelRatio, devicePixelRatio);
-
-    // 楕円フレーム（目標）
-    const frameW = w * 0.62;
-    const frameH = h * 0.72;
-    const cx = w / 2;
-    const cy = h / 2;
-
-    // 外側を暗くして楕円を抜く
-    ctx.fillStyle = "rgba(0,0,0,0.35)";
-    ctx.beginPath();
-    ctx.rect(0, 0, w, h);
-    ctx.ellipse(cx, cy, frameW / 2, frameH / 2, 0, 0, Math.PI * 2);
-    ctx.fill("evenodd");
-
-    // 楕円枠
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = statusOk ? "rgba(0,255,120,0.95)" : "rgba(255,255,255,0.85)";
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, frameW / 2, frameH / 2, 0, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // 顔bbox（デバッグ用：不要ならコメントアウト可）
-    if (faceBoxPx) {
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = statusOk ? "rgba(0,255,120,0.9)" : "rgba(255,180,0,0.9)";
-      ctx.strokeRect(faceBoxPx.x, faceBoxPx.y, faceBoxPx.w, faceBoxPx.h);
-    }
-
-    return { cx, cy, frameW, frameH };
-  }
-
-  function checkFaceInFrame(faceBox, frame) {
-    // 顔bbox中心
-    const faceCx = faceBox.x + faceBox.w / 2;
-    const faceCy = faceBox.y + faceBox.h / 2;
-
-    // 大きさ：顔の高さが楕円高さに近いか（距離の代理指標）
-    const sizeRatio = faceBox.h / frame.frameH; // 1.0付近が理想
-    const withinSize = (sizeRatio >= 0.88 && sizeRatio <= 1.12);
-
-    // 中心：顔中心が楕円中心からズレすぎないか
-    const dx = Math.abs(faceCx - frame.cx) / frame.frameW;
-    const dy = Math.abs(faceCy - frame.cy) / frame.frameH;
-    const withinCenter = (dx <= 0.12 && dy <= 0.12);
-
-    return { ok: withinSize && withinCenter, sizeRatio, dx, dy };
-  }
-
-  function ensureMediaPipeLoaded() {
-    // index.htmlで MediaPipe を読み込んでいないと動かない
-    return (typeof FaceDetection !== "undefined") && (typeof Camera !== "undefined");
-  }
-
-    async function startCalibration() {
-  calibOkBtn.disabled = true;
-  calibOkFrames = 0;
-  calibRunning = true;
-
-  const say = (t) => { calibBadge.textContent = t; console.log("[calib]", t); };
-
-  try {
-    say("1/8: 開始ボタン押下OK");
-
-    // 重要：API存在チェック
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      say("❌ mediaDevices/getUserMedia が使えません。Safariで開いてますか？（アプリ内ブラウザだと不可なことが多い）");
-      calibRunning = false;
-      return;
-    }
-    say("2/8: getUserMedia API OK");
-
-    resizeCalibCanvas();
-    window.addEventListener("resize", resizeCalibCanvas);
-    say("3/8: canvas準備OK");
-
-    // FaceDetection 読み込みチェック
-if (typeof window.FaceDetection === "undefined") {
-  say("❌ FaceDetectionが未定義。face_detection.js が読み込めていません");
-  calibRunning = false;
-  return;
-}
-say("4/8: FaceDetection global OK");
-
-// ★ 環境差を吸収（FaceDetection か FaceDetection.FaceDetection のどっちでも動く）
-const FaceDetCtor =
-  (window.FaceDetection && window.FaceDetection.FaceDetection)
-    ? window.FaceDetection.FaceDetection
-    : window.FaceDetection;
-
-if (typeof FaceDetCtor !== "function") {
-  say(`❌ FaceDetection ctorが見つかりません。typeof FaceDetection=${typeof window.FaceDetection}`);
-  say(`keys: ${Object.keys(window.FaceDetection || {}).join(",")}`);
-  calibRunning = false;
-  return;
-}
-say("4.5/8: FaceDetection ctor OK");
-
-// FaceDetection初期化
-faceDetector = new FaceDetCtor({
-  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
-});
-faceDetector.setOptions({ model: "short", minDetectionConfidence: 0.6 });
-say("5/8: FaceDetection 初期化OK");
-
-    // ここが本丸：カメラ起動
-    say("6/8: getUserMedia 呼び出し中…");
-
-    // ★iPhoneで安定しやすい設定（facingModeは object で指定）
-    const constraints = {
-      audio: false,
-      video: {
-        facingMode: { ideal: "user" },
-        width: { ideal: 640 },
-        height: { ideal: 480 }
-      }
-    };
-
-    // ★タイムアウトを付ける（固まり対策）
-    const stream = await Promise.race([
-      navigator.mediaDevices.getUserMedia(constraints),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("getUserMedia_timeout")), 8000))
-    ]);
-
-    say("7/8: stream取得OK");
-
-    calibVideo.srcObject = stream;
-
-    // iOSはメタデータ待ちが必須級
-    await Promise.race([
-      new Promise((res) => { calibVideo.onloadedmetadata = () => res(); }),
-      new Promise((_, rej) => setTimeout(() => rej(new Error("metadata_timeout")), 5000))
-    ]);
-
-    say("8/8: metadata OK → play()");
-
-    await calibVideo.play();
-    say("🎥 カメラ起動完了：解析開始中…");
-
-    const loop = async () => {
-      if (!calibRunning) return;
-      try {
-        await faceDetector.send({ image: calibVideo });
-      } catch (e) {
-        calibBadge.textContent = `解析エラー: ${e?.name || "unknown"}`;
-      }
-      requestAnimationFrame(loop);
-    };
-    requestAnimationFrame(loop);
-
-  } catch (e) {
-    const name = e?.name || "Error";
-    const msg = e?.message || String(e);
-    calibBadge.textContent = `❌ カメラ起動失敗: ${name} ${msg}`;
-    calibRunning = false;
-    console.error(e);
-  }
-}
-
-   async function stopCalibration() {
-    calibRunning = false;
-    window.removeEventListener("resize", resizeCalibCanvas);
-
-    // getUserMediaの停止（重要）
-    try {
-      const stream = calibVideo.srcObject;
-      if (stream && stream.getTracks) {
-        stream.getTracks().forEach(t => t.stop());
-      }
-    } catch (_) {}
-
-    calibVideo.srcObject = null;
-    faceDetector = null;
-    calibOkFrames = 0;
-  }
-
-  // ====== CoDG 推定（終了時）======
+  // ====== CoDG計算 ======
 
   function sigmoid(t) {
     return 1 / (1 + Math.exp(-t));
   }
 
-  function solve2x2(a11, a12, a21, a22, b1, b2) {
-    const det = a11 * a22 - a12 * a21;
-    if (Math.abs(det) < 1e-12) return null;
-    return [
-      ( b1 * a22 - b2 * a12) / det,
-      (-b1 * a21 + b2 * a11) / det
-    ];
-  }
-
-  // IRLS ロジスティック回帰（binomial: y successes out of n）
-  // p(x) = sigmoid(b0 + b1*x)
-  function fitLogisticIRLS(xs, ys, ns, maxIter = 50) {
+  function fit(xs, ys, ns) {
     let b0 = 0, b1 = 0;
 
-    for (let iter = 0; iter < maxIter; iter++) {
+    for (let iter = 0; iter < 50; iter++) {
       let a11 = 0, a12 = 0, a22 = 0;
       let c1 = 0, c2 = 0;
 
@@ -384,7 +125,7 @@ say("5/8: FaceDetection 初期化OK");
 
         const eta = b0 + b1 * x;
         let p = sigmoid(eta);
-        p = Math.min(1 - 1e-6, Math.max(1e-6, p));
+        p = Math.min(0.999999, Math.max(0.000001, p));
 
         const w = n * p * (1 - p);
         const z = eta + (y - n * p) / (n * p * (1 - p));
@@ -397,363 +138,144 @@ say("5/8: FaceDetection 初期化OK");
         c2 += w * x * z;
       }
 
-      // リッジ（特異対策）
-      const ridge = 1e-6;
-      a11 += ridge;
-      a22 += ridge;
+      const det = a11 * a22 - a12 * a12;
+      if (Math.abs(det) < 1e-6) break;
 
-      const sol = solve2x2(a11, a12, a12, a22, c1, c2);
-      if (!sol) return null;
+      const newB0 = (c1 * a22 - c2 * a12) / det;
+      const newB1 = (c2 * a11 - c1 * a12) / det;
 
-      const newB0 = sol[0];
-      const newB1 = sol[1];
+      if (Math.abs(newB0 - b0) < 1e-6 && Math.abs(newB1 - b1) < 1e-6) break;
 
-      const maxDelta = Math.max(Math.abs(newB0 - b0), Math.abs(newB1 - b1));
       b0 = newB0;
       b1 = newB1;
-
-      if (maxDelta < 1e-6) break;
     }
 
     return { b0, b1 };
   }
 
-  function aggregateByGazeLevel(logs, faceFilter = null) {
-    const map = new Map(); // gaze -> {n,left,right}
+  function estimateCoDG() {
+    const map = new Map();
+
     for (const row of logs) {
-      if (faceFilter && row.face_id !== faceFilter) continue;
-      const x = Number(row.gaze_level);
-      if (!map.has(x)) map.set(x, { n: 0, left: 0, right: 0 });
-      const obj = map.get(x);
-      obj.n += 1;
-      if (row.response === "Left") obj.left += 1;
-      if (row.response === "Right") obj.right += 1;
+      const x = row.gaze_level;
+      if (!map.has(x)) map.set(x, { n: 0, L: 0, R: 0 });
+
+      const d = map.get(x);
+      d.n++;
+      if (row.response === "Left") d.L++;
+      if (row.response === "Right") d.R++;
     }
 
-    const xs = Array.from(map.keys()).sort((a, b) => a - b);
+    const xs = [...map.keys()].sort((a, b) => a - b);
     const ns = xs.map(x => map.get(x).n);
-    const lefts = xs.map(x => map.get(x).left);
-    const rights = xs.map(x => map.get(x).right);
-    return { xs, ns, lefts, rights };
+    const Ls = xs.map(x => map.get(x).L);
+    const Rs = xs.map(x => map.get(x).R);
+
+    const fL = fit(xs, Ls, ns);
+    const fR = fit(xs, Rs, ns);
+
+    const pL = x => sigmoid(fL.b0 + fL.b1 * x);
+    const pR = x => sigmoid(fR.b0 + fR.b1 * x);
+
+    const find = (f) => {
+      for (let x = -12; x <= 12; x += 0.25) {
+        if (Math.abs(f(x)) < 0.01) return x;
+      }
+      return null;
+    };
+
+    const xL = find(x => 2*pL(x)+pR(x)-1);
+    const xR = find(x => pL(x)+2*pR(x)-1);
+
+    if (xL === null || xR === null) return null;
+
+    return {
+      codg: xR - xL,
+      xL,
+      xR
+    };
   }
 
-  function findRootBisection(f, a, b, tol = 1e-4, maxIter = 80) {
-    let fa = f(a), fb = f(b);
-    if (Number.isNaN(fa) || Number.isNaN(fb)) return null;
-    if (fa === 0) return a;
-    if (fb === 0) return b;
-    if (fa * fb > 0) return null;
-
-    let lo = a, hi = b;
-    for (let i = 0; i < maxIter; i++) {
-      const mid = (lo + hi) / 2;
-      const fm = f(mid);
-      if (Number.isNaN(fm)) return null;
-      if (Math.abs(fm) < tol) return mid;
-      if (fa * fm <= 0) {
-        hi = mid;
-        fb = fm;
-      } else {
-        lo = mid;
-        fa = fm;
-      }
-    }
-    return (lo + hi) / 2;
-  }
-
-  function estimateCoDGFromLogs(logs, gazeMin = -12, gazeMax = 12, faceFilter = null) {
-    const { xs, ns, lefts, rights } = aggregateByGazeLevel(logs, faceFilter);
-
-    const totalN = ns.reduce((a, b) => a + b, 0);
-    if (xs.length < 5 || totalN < 30) {
-      return { codg: null, x_left: null, x_right: null, note: "insufficient_data" };
-    }
-
-    const fitL = fitLogisticIRLS(xs, lefts, ns);
-    const fitR = fitLogisticIRLS(xs, rights, ns);
-    if (!fitL || !fitR) {
-      return { codg: null, x_left: null, x_right: null, note: "fit_failed" };
-    }
-
-    const pL = (x) => sigmoid(fitL.b0 + fitL.b1 * x);
-    const pR = (x) => sigmoid(fitR.b0 + fitR.b1 * x);
-
-    const fLeft = (x) => (2 * pL(x) + pR(x) - 1);
-    const fRight = (x) => (pL(x) + 2 * pR(x) - 1);
-
-    function scanForRoot(f, preferNegative) {
-      const step = 0.25;
-      let prevX = gazeMin;
-      let prevF = f(prevX);
-
-      const candidates = [];
-      for (let x = gazeMin + step; x <= gazeMax + 1e-9; x += step) {
-        const fx = f(x);
-        if (!Number.isNaN(prevF) && !Number.isNaN(fx) && prevF * fx <= 0) {
-          const root = findRootBisection(f, prevX, x);
-          if (root !== null) candidates.push(root);
-        }
-        prevX = x;
-        prevF = fx;
-      }
-
-      if (candidates.length === 0) return null;
-
-      if (preferNegative) {
-        const negs = candidates.filter(v => v <= 0);
-        return (negs.length ? negs[negs.length - 1] : candidates[0]);
-      } else {
-        const poss = candidates.filter(v => v >= 0);
-        return (poss.length ? poss[0] : candidates[candidates.length - 1]);
-      }
-    }
-
-    const x_left = scanForRoot(fLeft, true);
-    const x_right = scanForRoot(fRight, false);
-
-    if (x_left === null || x_right === null) {
-      return { codg: null, x_left, x_right, note: "intersection_not_found", fitL, fitR };
-    }
-
-    return { codg: (x_right - x_left), x_left, x_right, note: "ok", fitL, fitR };
-  }
-
-  // ====== 実行 ======
+  // ====== 実験 ======
 
   async function runTrial(trial) {
     currentTrial = trial;
     awaitingResponse = false;
-    stimOnsetPerf = null;
 
-    // Fixation
     fixEl.textContent = "+";
     stimImg.style.opacity = "0";
     setButtonsEnabled(false);
-    statusEl.textContent = "fix";
     await sleep(FIX_MS);
 
-    // Stimulus（画像読み込み完了を待ってから表示）
     fixEl.textContent = "";
     setButtonsEnabled(true);
     awaitingResponse = true;
 
-    // 先に消してからsrcを変える（前の画像チラ見え防止）
-    stimImg.style.opacity = "0";
-
-    await new Promise((resolve) => {
-      stimImg.onload = () => resolve();
-      stimImg.onerror = () => resolve();
-      stimImg.src = trial.image_path;
-    });
-
+    stimImg.src = trial.image_path;
     stimImg.style.opacity = "1";
-    statusEl.textContent = "stim";
     stimOnsetPerf = performance.now();
 
     await sleep(STIM_MS);
-    if (awaitingResponse) {
-      stimImg.style.opacity = "0";
-      statusEl.textContent = "respond";
-    }
+    if (awaitingResponse) stimImg.style.opacity = "0";
   }
 
-  function recordResponse(respLabel) {
+  function recordResponse(resp) {
     if (!awaitingResponse) return;
 
-    const rt = Math.round(performance.now() - stimOnsetPerf);
     awaitingResponse = false;
     setButtonsEnabled(false);
 
-    const pid = (pidInput.value || "").trim();
-    const trialNo = tIndex + 1;
-
     logs.push({
-      participant_id: pid,
-      trial_index: trialNo,
-      face_id: currentTrial.face_id,
       gaze_level: currentTrial.gaze_level,
-      repeat: currentTrial.repeat,
-      image_file: currentTrial.image_file,
-      response: respLabel,          // Left / Direct / Right
-      rt_ms: rt,
-      presented_at_iso: nowISO(),
-      device: userAgent()
+      response: resp
     });
 
-    (async () => {
-      await sleep(POST_RESP_MS);
-      nextTrial();
-    })();
-  }
-
-  function csvEscape(v) {
-    if (v === null || v === undefined) return "";
-    const s = String(v);
-    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-    return s;
-  }
-
-  function downloadCSV(rows, filename) {
-    const cols = Object.keys(rows[0] || { participant_id: "" });
-    const header = cols.join(",");
-    const lines = rows.map(r => cols.map(c => csvEscape(r[c])).join(","));
-    const csv = [header, ...lines].join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    setTimeout(nextTrial, POST_RESP_MS);
   }
 
   function nextTrial() {
-    tIndex += 1;
-    if (tIndex >= trials.length) {
-      finishTask();
-      return;
-    }
-    trialNumEl.textContent = String(tIndex + 1);
+    tIndex++;
+    if (tIndex >= trials.length) return finishTask();
+
+    trialNumEl.textContent = tIndex + 1;
     runTrial(trials[tIndex]);
   }
 
   function finishTask() {
-    const pid = (pidInput.value || "").trim();
-    const safePid = pid ? pid.replace(/[^\w\-]/g, "_") : "noid";
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const est = estimateCoDG();
 
-    // ① trialログCSV
-    const fnameTrials = `codg_trials_${safePid}_${stamp}.csv`;
-    if (logs.length > 0) {
-      downloadCSV(logs, fnameTrials);
-    }
-
-    // ② CoDG 推定（男女まとめ）
-    const estAll = estimateCoDGFromLogs(logs, -12, 12, null);
-
-    // ③ summary CSV
-    const summary = [{
-      participant_id: pid,
-      codg: estAll.codg,
-      x_left: estAll.x_left,
-      x_right: estAll.x_right,
-      note: estAll.note,
-      b0_left: estAll.fitL ? estAll.fitL.b0 : null,
-      b1_left: estAll.fitL ? estAll.fitL.b1 : null,
-      b0_right: estAll.fitR ? estAll.fitR.b0 : null,
-      b1_right: estAll.fitR ? estAll.fitR.b1 : null,
-      n_trials: logs.length,
-      finished_at_iso: nowISO(),
-      device: userAgent()
-    }];
-
-    const fnameSummary = `codg_summary_${safePid}_${stamp}.csv`;
-    downloadCSV(summary, fnameSummary);
-
-    // ④ 画面表示（ユーザー向け）
-    let msg = "CSVを保存しました。必要ならもう一度実施できます。\n\n";
-
-    if (estAll.codg === null) {
-      msg += "⚠️ CoDGを計算できませんでした。\n";
-      msg += `理由：${estAll.note}\n`;
-      msg += "（反応が極端に偏った場合などに起こります。データ自体は保存されています。）\n\n";
+    let msg = "";
+    if (!est) {
+      msg = "CoDGを計算できませんでした";
     } else {
-      msg += `🎉 あなたのCoDGは【${estAll.codg.toFixed(3)}】でした！\n`;
-      msg += "（値が大きいほど、「自分を見ている」と判断する範囲が広い傾向を表します）\n\n";
-      msg += `【詳細】左境界 L=${estAll.x_left.toFixed(3)} / 右境界 R=${estAll.x_right.toFixed(3)}\n\n`;
+      msg = `あなたのCoDGは ${est.codg.toFixed(3)} でした！`;
     }
-
-    msg += `保存したファイル：\n- ${fnameTrials}\n- ${fnameSummary}\n`;
-    msg += `試行数：${logs.length}`;
 
     showDone(msg);
   }
 
-  function validateAssetsHint() {
-    const examples = [
-      `${FACES[0]}_${GAZE_LEVELS[0]}.${EXT}`,
-      `${FACES[0]}_${GAZE_LEVELS[5]}.${EXT}`,
-      `${FACES[1]}_${GAZE_LEVELS[10]}.${EXT}`
-    ];
-    assetHintEl.textContent = `画像は ./stimuli/ に置いてください。例: ${examples.join(" , ")}`;
-  }
-
   function startTask() {
-    const pid = (pidInput.value || "").trim();
-    if (!pid) {
-      alert("参加者IDを入力してください（例: P001）");
-      return;
-    }
+    const pid = pidInput.value.trim();
+    if (!pid) return alert("IDを入力してください");
 
-    logs = [];
     trials = makeTrialList();
+    logs = [];
     tIndex = 0;
 
-    trialTotalEl.textContent = String(trials.length);
+    trialTotalEl.textContent = trials.length;
     trialNumEl.textContent = "1";
 
-    // ★ここで校正画面へ
-    showCalib();
-    startCalibration();
+    showTask();
+    runTrial(trials[0]);
   }
 
   // ====== イベント ======
   startBtn.addEventListener("click", startTask);
-
-  restartBtn.addEventListener("click", () => {
-    showSetup();
-  });
-
-  // 校正画面：戻る / OK
-  if (calibBackBtn) {
-    calibBackBtn.addEventListener("click", async () => {
-      await stopCalibration();
-      showSetup();
-    });
-  }
-
-  if (calibOkBtn) {
-    calibOkBtn.addEventListener("click", async () => {
-      await stopCalibration();
-      showTask();
-      runTrial(trials[0]);
-    });
-  }
-
-    // 校正画面：カメラ開始（押下検知を100%見える化）
-  if (calibCamBtn) {
-    const handler = async () => {
-      calibBadge.textContent = "✅ ボタン押下を検知しました（起動処理へ）";
-      console.log("[calib] calibCamBtn pressed");
-      await startCalibration();
-    };
-
-    if (calibStartBtn) {
-  calibStartBtn.addEventListener("click", async () => {
-    calibBadge.textContent = "カメラ起動中…";
-    await startCalibration();
-  });
-}
-    // iPhoneは click が不安定なことがあるので touchstart も保険で登録
-    calibCamBtn.addEventListener("click", handler);
-    calibCamBtn.addEventListener("touchstart", handler, { passive: true });
-  } else {
-    // これが出るなら：HTMLにボタンがない/ID違い/古いHTMLを見てる
-    if (calibBadge) {
-      calibBadge.textContent = "❌ calibCamBtn が見つかりません（HTMLのid='calibCamBtn' を確認 / キャッシュの可能性）";
-    }
-    console.log("[calib] calibCamBtn is null");
-  }
+  restartBtn.addEventListener("click", showSetup);
 
   btnLeft.addEventListener("click", () => recordResponse("Left"));
   btnDirect.addEventListener("click", () => recordResponse("Direct"));
   btnRight.addEventListener("click", () => recordResponse("Right"));
 
-  // 初期表示
-  validateAssetsHint();
   showSetup();
 })();
-
