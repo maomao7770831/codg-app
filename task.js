@@ -190,7 +190,7 @@
     if (xL === null || xR === null) return null;
 
     return {
-      codg: xR - xL,
+      codg: Math.abs(xR - xL),
       xL,
       xR
     };
