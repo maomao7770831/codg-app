@@ -198,32 +198,45 @@
 
   // ====== 実験 ======
 
-  async function runTrial(trial) {
-    currentTrial = trial;
-    awaitingResponse = false;
+async function runTrial(trial) {
+  currentTrial = trial;
+  awaitingResponse = false;
 
-    fixEl.textContent = "+";
-    stimImg.style.opacity = "0";
-    setButtonsEnabled(false);
-    await sleep(FIX_MS);
+  // 注視点
+  fixEl.textContent = "+";
+  stimImg.style.opacity = "0";
+  stimImg.src = ""; // ←これ重要（前の画像を消す）
+  setButtonsEnabled(false);
+  await sleep(FIX_MS);
 
-    fixEl.textContent = "";
-    setButtonsEnabled(true);
-    awaitingResponse = true;
+  // 刺激
+  fixEl.textContent = "";
+  setButtonsEnabled(true);
+  awaitingResponse = true;
 
+  // 画像を読み込んでから表示（←これが超重要）
+  await new Promise((resolve) => {
+    stimImg.onload = () => resolve();
+    stimImg.onerror = () => resolve();
     stimImg.src = trial.image_path;
-    stimImg.style.opacity = "1";
-    stimOnsetPerf = performance.now();
+  });
 
-    await sleep(STIM_MS);
-    if (awaitingResponse) stimImg.style.opacity = "0";
+  stimImg.style.opacity = "1";
+  stimOnsetPerf = performance.now();
+
+  await sleep(STIM_MS);
+
+  if (awaitingResponse) {
+    stimImg.style.opacity = "0";
   }
+}
 
   function recordResponse(resp) {
     if (!awaitingResponse) return;
 
     awaitingResponse = false;
     setButtonsEnabled(false);
+    stimImg.style.opacity = "0"; // ←これ追加
 
     logs.push({
       gaze_level: currentTrial.gaze_level,
